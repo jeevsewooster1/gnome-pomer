@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.pomer" path="/org/gnome/shell/extensions/pomer/">
+    <key name="time-left" type="i">
+      <default>0</default>
+      <summary>Time left in seconds</summary>
+      <description>The remaining time for the current timer session.</description>
+    </key>
+    <key name="work-cycle-count" type="i">
+      <default>0</default>
+      <summary>Completed work cycles</summary>
+      <description>How many work cycles have been completed towards a long break.</description>
+    </key>
+    <key name="session-type" type="s">
+      <default>'Work'</default>
+      <summary>Current session type</summary>
+      <description>The type of the current session (e.g., Work, Short Break).</description>
+    </key>
+    <key name="timer-state" type="i">
+      <default>0</default>
+      <summary>The state of the timer</summary>
+      <description>0: Stopped, 1: Running, 2: Paused.</description>
+    </key>
+    <key name="quit-time" type="x">
+      <default>0</default>
+      <summary>The timestamp of the last save</summary>
+      <description>The monotonic time when the extension was last disabled. This is used to calculate elapsed time.</description>
+    </key>
+
+    <key name="cycles-today" type="i">
+      <default>0</default>
+      <summary>Work cycles completed today</summary>
+      <description>The total number of work cycles completed on the current day.</description>
+    </key>
+    <key name="last-cycle-date" type="s">
+      <default>''</default>
+      <summary>Date of the last cycle count</summary>
+      <description>The date (YYYY-MM-DD) corresponding to the 'cycles-today' count. Used to reset the count daily.</description>
+    </key>
+  </schema>
+</schemalist>
