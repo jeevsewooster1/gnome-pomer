@@ -5,14 +5,16 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
-import Clutter from 'gi://Clutter'; // <-- FIX 1: Import Clutter
+import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 
 // --- Constants for Pomodoro timings ---
 const WORK_MINUTES = 25;
 const SHORT_BREAK_MINUTES = 5;
 const LONG_BREAK_MINUTES = 15;
+const CYCLES_BEFORE_LONG_BREAK = 4; // <-- NEW: How many work cycles before a long break
 
-// Convert minutes to seconds for GLib.timeout_add_seconds
+// Convert minutes to seconds
 const WORK_DURATION = WORK_MINUTES * 60;
 const SHORT_BREAK_DURATION = SHORT_BREAK_MINUTES * 60;
 const LONG_BREAK_DURATION = LONG_BREAK_MINUTES * 60;
@@ -32,8 +34,10 @@ const Session = {
 
 const PomodoroTimer = GObject.registerClass(
 class PomodoroTimer extends PanelMenu.Button {
-    constructor() {
+    constructor(extension) {
         super(0.0, 'Pomodoro Timer');
+
+        this._extension = extension;
 
         // --- Initialize state variables ---
         this._state = State.STOPPED;
@@ -45,12 +49,13 @@ class PomodoroTimer extends PanelMenu.Button {
         // --- Create the panel icon and label ---
         this._label = new St.Label({
             text: this._formatTime(this._timeLeft),
-            y_align: Clutter.ActorAlign.CENTER, // <-- FIX 2: Use Clutter.ActorAlign
+            y_align: Clutter.ActorAlign.CENTER,
         });
 
+        // UPDATED: Make the icon bigger using icon_size
         this._icon = new St.Icon({
-            icon_name: 'media-playback-start-symbolic',
             style_class: 'system-status-icon',
+            icon_size: 24, // <-- UPDATED: Default is ~16px. 24px is noticeably larger.
         });
         
         let box = new St.BoxLayout();
@@ -60,15 +65,23 @@ class PomodoroTimer extends PanelMenu.Button {
 
         // --- Build the popup menu ---
         this._buildMenu();
+        this._updateUI();
     }
 
     _buildMenu() {
-        // --- Start/Pause Item ---
+        // --- Progress Tracker Item ---
+        // <-- NEW: Add a menu item to show progress towards the long break -->
+        this._progressMenuItem = new PopupMenu.PopupMenuItem('');
+        this._progressMenuItem.sensitive = false; // Make it not clickable
+        this.menu.addMenuItem(this._progressMenuItem);
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+        // --- Control Items ---
         this._startPauseItem = new PopupMenu.PopupMenuItem('Start');
         this._startPauseItem.connect('activate', () => this._toggleTimer());
         this.menu.addMenuItem(this._startPauseItem);
 
-        // --- Reset Item ---
         let resetItem = new PopupMenu.PopupMenuItem('Reset');
         resetItem.connect('activate', () => this._reset());
         this.menu.addMenuItem(resetItem);
@@ -90,16 +103,15 @@ class PomodoroTimer extends PanelMenu.Button {
         this._state = State.RUNNING;
         this._updateUI();
 
-        // Start a timer that ticks every second
         this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
             this._timeLeft--;
             this._updateUI();
 
             if (this._timeLeft <= 0) {
                 this._sessionFinished();
-                return GLib.SOURCE_REMOVE; // Stop the timer
+                return GLib.SOURCE_REMOVE;
             }
-            return GLib.SOURCE_CONTINUE; // Continue ticking
+            return GLib.SOURCE_CONTINUE;
         });
     }
 
@@ -121,19 +133,22 @@ class PomodoroTimer extends PanelMenu.Button {
         this._state = State.STOPPED;
         this._sessionType = Session.WORK;
         this._timeLeft = WORK_DURATION;
-        this._workCycleCount = 0;
+        this._workCycleCount = 0; // <-- UPDATED: Reset cycle count
         this._updateUI();
     }
 
     _sessionFinished() {
         const notificationMessage = `${this._sessionType} session is over!`;
         Main.notify('Pomodoro Timer', notificationMessage);
+        this._playSound();
         
+        // UPDATED: More robust logic for cycling sessions and resetting the count
         if (this._sessionType === Session.WORK) {
             this._workCycleCount++;
-            if (this._workCycleCount % 4 === 0) {
+            if (this._workCycleCount >= CYCLES_BEFORE_LONG_BREAK) {
                 this._sessionType = Session.LONG_BREAK;
                 this._timeLeft = LONG_BREAK_DURATION;
+                this._workCycleCount = 0; // Reset for the next set of cycles
             } else {
                 this._sessionType = Session.SHORT_BREAK;
                 this._timeLeft = SHORT_BREAK_DURATION;
@@ -145,6 +160,19 @@ class PomodoroTimer extends PanelMenu.Button {
         this._start();
     }
 
+    _playSound() {
+        const soundFile = this._extension.path + '/assets/audio/ring.mp3';
+        try {
+            if (Gio.File.new_for_path(soundFile).query_exists(null)) {
+                GLib.spawn_command_line_async(`paplay ${soundFile}`);
+            } else {
+                Main.notify('Pomodoro Timer', 'Sound file not found.');
+            }
+        } catch (e) {
+            logError(e, 'Failed to play sound');
+        }
+    }
+
     _formatTime(seconds) {
         let mins = Math.floor(seconds / 60);
         let secs = seconds % 60;
@@ -152,19 +180,35 @@ class PomodoroTimer extends PanelMenu.Button {
     }
 
     _updateUI() {
+        // Update timer label
         this._label.set_text(this._formatTime(this._timeLeft));
 
+        // <-- NEW: Update the progress tracker text -->
+        const progressText = `Until Long Break: ${this._workCycleCount} / ${CYCLES_BEFORE_LONG_BREAK}`;
+        this._progressMenuItem.label.set_text(progressText);
+
+        // Update icon based on session type
+        const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
+        const iconPath = this._extension.path + `/assets/img/${iconName}`;
+        try {
+            const file = Gio.File.new_for_path(iconPath);
+            if (this._icon.gicon?.get_file()?.get_path() !== file.get_path()) {
+                this._icon.gicon = new Gio.FileIcon({ file });
+            }
+        } catch (e) {
+            logError(e, `Failed to load icon: ${iconName}`);
+            this._icon.icon_name = 'dialog-error-symbolic';
+        }
+
+        // Update menu item text based on state
         switch (this._state) {
             case State.RUNNING:
-                this._icon.icon_name = 'media-playback-pause-symbolic';
                 this._startPauseItem.label.set_text('Pause');
                 break;
             case State.PAUSED:
-                this._icon.icon_name = 'media-playback-start-symbolic';
                 this._startPauseItem.label.set_text('Resume');
                 break;
             case State.STOPPED:
-                this._icon.icon_name = 'media-playback-start-symbolic';
                 this._startPauseItem.label.set_text('Start');
                 break;
         }
@@ -185,7 +229,7 @@ export default class PomodoroExtension extends Extension {
     }
 
     enable() {
-        this._indicator = new PomodoroTimer();
+        this._indicator = new PomodoroTimer(this);
         Main.panel.addToStatusArea('pomodoro-timer', this._indicator);
     }
 
