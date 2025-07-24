@@ -1,0 +1,7 @@
+{
+  "name": "Pomodoro Timer",
+  "description": "A simple Pomodoro timer in the panel.",
+  "uuid": "pomer@v31dt",
+  "shell-version": ["45", "46"],
+  "version": 1.0
+}
