@@ -201,11 +201,10 @@ class PomodoroTimer extends PanelMenu.Button {
         this._updateUI();
     }
 
-
-
     _sessionFinished(notifyAndSound = true) {
         if (notifyAndSound) {
             Main.notify('Pomodoro Timer', `${this._sessionType} session is over!`);
+            this._playSound(); // <-- ADD THIS LINE
         }
 
         if (this._sessionType === Session.WORK) {
@@ -225,7 +224,6 @@ class PomodoroTimer extends PanelMenu.Button {
             this._settings.set_int('cycles-today', this._cyclesToday);
             this._settings.set_string('last-cycle-date', todayStr);
 
-
             if (this._workCycleCount >= CYCLES_BEFORE_LONG_BREAK) {
                 this._sessionType = Session.LONG_BREAK;
                 this._timeLeft = LONG_BREAK_DURATION;
@@ -240,6 +238,7 @@ class PomodoroTimer extends PanelMenu.Button {
         }
         this._start();
     }
+
     
     _formatTime(seconds) {
         let mins = Math.floor(seconds / 60);
@@ -277,6 +276,23 @@ class PomodoroTimer extends PanelMenu.Button {
         this._saveState();
         super.destroy();
     }
+
+    _playSound() {
+        // This path must match the location of your sound file inside your extension's directory.
+        const soundFile = this._extension.path + '/assets/audio/ring.mp3';
+        try {
+            if (Gio.File.new_for_path(soundFile).query_exists(null)) {
+                // Uses 'paplay' (PulseAudio) to play the sound file.
+                GLib.spawn_command_line_async(`paplay ${soundFile}`);
+            } else {
+                Main.notify('Pomodoro Timer', 'Sound file not found.');
+            }
+        } catch (e) {
+            // Using log() as logError is not defined in the target code.
+            log(`Pomodoro Timer: Failed to play sound. ${e}`);
+        }
+    }
+
 });
 
 
