@@ -21,294 +21,288 @@ const SHORT_BREAK_DURATION = SHORT_BREAK_MINUTES * 60;
 const LONG_BREAK_DURATION = LONG_BREAK_MINUTES * 60;
 
 const State = {
-    STOPPED: 0,
-    RUNNING: 1,
-    PAUSED: 2,
+  STOPPED: 0,
+  RUNNING: 1,
+  PAUSED: 2,
 };
 
 const Session = {
-    WORK: 'Work',
-    SHORT_BREAK: 'Short Break',
-    LONG_BREAK: 'Long Break',
+  WORK: 'Work',
+  SHORT_BREAK: 'Short Break',
+  LONG_BREAK: 'Long Break',
 };
 
 // --- Settings Loader Function ---
 function getSettings(extension) {
-    let GioSSS = Gio.SettingsSchemaSource;
-    let schemaSource = GioSSS.new_from_directory(
-        extension.dir.get_child("schemas").get_path(),
-        GioSSS.get_default(),
-        false
-    );
+  let GioSSS = Gio.SettingsSchemaSource;
+  let schemaSource = GioSSS.new_from_directory(
+    extension.dir.get_child("schemas").get_path(),
+    GioSSS.get_default(),
+    false
+  );
 
-    let schemaObj = schemaSource.lookup('org.gnome.shell.extensions.pomer', true);
-    if (!schemaObj) {
-        throw new Error('Schema org.gnome.shell.extensions.pomer could not be found');
-    }
-    return new Gio.Settings({ settings_schema: schemaObj });
+  let schemaObj = schemaSource.lookup('org.gnome.shell.extensions.pomer', true);
+  if (!schemaObj) {
+    throw new Error('Schema org.gnome.shell.extensions.pomer could not be found');
+  }
+  return new Gio.Settings({ settings_schema: schemaObj });
 }
 
 
 // --- Main Timer Logic Class ---
 const PomodoroTimer = GObject.registerClass(
-class PomodoroTimer extends PanelMenu.Button {
+  class PomodoroTimer extends PanelMenu.Button {
     constructor(extension, settings) {
-        super(0.0, 'Pomodoro Timer');
+      super(0.0, 'Pomodoro Timer');
 
-        this._extension = extension;
-        this._settings = settings;
+      this._extension = extension;
+      this._settings = settings;
 
-        this._state = State.STOPPED;
-        this._sessionType = Session.WORK;
-        this._timeLeft = WORK_DURATION;
-        this._timerId = null;
-        this._workCycleCount = 0;
-        this._cyclesToday = 0; // NEW: Initialize daily cycle count
+      this._state = State.STOPPED;
+      this._sessionType = Session.WORK;
+      this._timeLeft = WORK_DURATION;
+      this._timerId = null;
+      this._workCycleCount = 0;
+      this._cyclesToday = 0;
 
-        this._label = new St.Label({
-            text: this._formatTime(this._timeLeft),
-            y_align: Clutter.ActorAlign.CENTER,
-        });
+      this._label = new St.Label({
+        text: this._formatTime(this._timeLeft),
+        y_align: Clutter.ActorAlign.CENTER,
+      });
 
-        this._icon = new St.Icon({
-            style_class: 'system-status-icon',
-            icon_size: 34,
-        });
+      this._icon = new St.Icon({
+        style_class: 'system-status-icon',
+        icon_size: 34,
+      });
 
-        let box = new St.BoxLayout();
-        box.add_child(this._icon);
-        box.add_child(this._label);
-        this.add_child(box);
+      let box = new St.BoxLayout();
+      box.add_child(this._icon);
+      box.add_child(this._label);
+      this.add_child(box);
 
-        this._buildMenu();
-        this._loadState();
-        this._updateUI();
+      this._buildMenu();
+      this._loadState();
+      this._updateUI();
     }
 
     _loadState() {
-        // --- Daily Counter Reset Logic ---
-        const todayStr = GLib.DateTime.new_now_local().format('%Y-%m-%d');
-        const lastDate = this._settings.get_string('last-cycle-date');
+      // --- Daily Counter Reset Logic ---
+      const todayStr = GLib.DateTime.new_now_local().format('%Y-%m-%d');
+      const lastDate = this._settings.get_string('last-cycle-date');
 
-        if (todayStr === lastDate) {
-            // It's the same day, load the count from settings
-            this._cyclesToday = this._settings.get_int('cycles-today');
-        } else {
-            // It's a new day, the counter is 0. No need to write to settings yet.
-            this._cyclesToday = 0;
-        }
+      if (todayStr === lastDate) {
+        this._cyclesToday = this._settings.get_int('cycles-today');
+      } else {
+        this._cyclesToday = 0;
+      }
 
-        // --- Original Loading Logic ---
-        const state = this._settings.get_int('timer-state');
-        if (state === State.STOPPED) {
-            this._reset();
-            return;
-        }
+      // --- Original Loading Logic ---
+      const state = this._settings.get_int('timer-state');
+      if (state === State.STOPPED) {
+        this._reset();
+        return;
+      }
 
-        this._state = state;
-        this._timeLeft = this._settings.get_int('time-left');
-        this._workCycleCount = this._settings.get_int('work-cycle-count');
-        this._sessionType = this._settings.get_string('session-type');
+      this._state = state;
+      this._timeLeft = this._settings.get_int('time-left');
+      this._workCycleCount = this._settings.get_int('work-cycle-count');
+      this._sessionType = this._settings.get_string('session-type');
 
-        if (this._state === State.RUNNING) {
-            const quitTime = this._settings.get_int64('quit-time');
-            const now = GLib.get_monotonic_time();
-            const elapsed = (now - quitTime) / 1000000;
-
-            this._timeLeft -= Math.floor(elapsed);
-
-            if (this._timeLeft <= 0) {
-                this._sessionFinished(false);
-            } else {
-                this._start();
-            }
-        }
+      if (this._state === State.RUNNING) {
+        // BUG FIX: The previous logic used monotonic time to calculate elapsed
+        // time, which is not persistent across reboots and caused incorrect
+        // timer values.
+        //
+        // By saving the state every second (see _start method), the stored
+        // `_timeLeft` is always up-to-date. We now simply restart the timer
+        // from the last saved value. This is imperfect as it doesn't account
+        // for the time while the system was off, but it's a minimal fix
+        // that prevents the timer from showing erratic values.
+        this._start();
+      }
     }
 
     _saveState() {
-        this._settings.set_int('timer-state', this._state);
-        this._settings.set_int('time-left', this._timeLeft);
-        this._settings.set_int('work-cycle-count', this._workCycleCount);
-        this._settings.set_string('session-type', this._sessionType);
-        this._settings.set_int64('quit-time', GLib.get_monotonic_time());
-        // NEW: Also save the daily count on shutdown
-        this._settings.set_int('cycles-today', this._cyclesToday);
+      this._settings.set_int('timer-state', this._state);
+      this._settings.set_int('time-left', this._timeLeft);
+      this._settings.set_int('work-cycle-count', this._workCycleCount);
+      this._settings.set_string('session-type', this._sessionType);
+      this._settings.set_int64('quit-time', GLib.get_monotonic_time());
+      this._settings.set_int('cycles-today', this._cyclesToday);
     }
 
     _buildMenu() {
-        this._progressMenuItem = new PopupMenu.PopupMenuItem('');
-        this._progressMenuItem.sensitive = false;
-        this.menu.addMenuItem(this._progressMenuItem);
+      this._progressMenuItem = new PopupMenu.PopupMenuItem('');
+      this._progressMenuItem.sensitive = false;
+      this.menu.addMenuItem(this._progressMenuItem);
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-        this._startPauseItem = new PopupMenu.PopupMenuItem('Start');
-        this._startPauseItem.connect('activate', () => this._toggleTimer());
-        this.menu.addMenuItem(this._startPauseItem);
+      this._startPauseItem = new PopupMenu.PopupMenuItem('Start');
+      this._startPauseItem.connect('activate', () => this._toggleTimer());
+      this.menu.addMenuItem(this._startPauseItem);
 
-        let resetItem = new PopupMenu.PopupMenuItem('Reset');
-        resetItem.connect('activate', () => this._reset());
-        this.menu.addMenuItem(resetItem);
+      let resetItem = new PopupMenu.PopupMenuItem('Reset');
+      resetItem.connect('activate', () => this._reset());
+      this.menu.addMenuItem(resetItem);
     }
 
     _toggleTimer() {
-        if (this._state === State.RUNNING) {
-            this._pause();
-        } else {
-            this._start();
-        }
+      if (this._state === State.RUNNING) {
+        this._pause();
+      } else {
+        this._start();
+      }
     }
 
     _start() {
-        if (this._timerId) {
-            GLib.source_remove(this._timerId);
-        }
-        
-        this._state = State.RUNNING;
+      if (this._timerId) {
+        GLib.source_remove(this._timerId);
+      }
+
+      this._state = State.RUNNING;
+      this._updateUI();
+
+      this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+        this._timeLeft--;
         this._updateUI();
 
-        this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
-            this._timeLeft--;
-            this._updateUI();
+        // BUG FIX: Persist the timer's state on every tick.
+        // This ensures that if the system reboots without a clean shutdown,
+        // the timer value is not lost, providing "proper persistency".
+        this._saveState();
 
-            if (this._timeLeft <= 0) {
-                this._sessionFinished();
-                return GLib.SOURCE_REMOVE;
-            }
-            return GLib.SOURCE_CONTINUE;
-        });
+        if (this._timeLeft <= 0) {
+          this._sessionFinished();
+          return GLib.SOURCE_REMOVE;
+        }
+        return GLib.SOURCE_CONTINUE;
+      });
     }
 
     _pause() {
-        if (!this._timerId) return;
-        this._state = State.PAUSED;
-        GLib.source_remove(this._timerId);
-        this._timerId = null;
-        this._updateUI();
+      if (!this._timerId) return;
+      this._state = State.PAUSED;
+      GLib.source_remove(this._timerId);
+      this._timerId = null;
+      this._updateUI();
     }
 
     _reset() {
-        if (this._timerId) {
-            GLib.source_remove(this._timerId);
-            this._timerId = null;
-        }
+      if (this._timerId) {
+        GLib.source_remove(this._timerId);
+        this._timerId = null;
+      }
 
-        this._state = State.STOPPED;
-        this._sessionType = Session.WORK;
-        this._timeLeft = WORK_DURATION;
-        this._workCycleCount = 0;
-        // Do not reset _cyclesToday here, only on a new day.
-        this._updateUI();
+      this._state = State.STOPPED;
+      this._sessionType = Session.WORK;
+      this._timeLeft = WORK_DURATION;
+      this._workCycleCount = 0;
+      this._updateUI();
     }
 
     _sessionFinished(notifyAndSound = true) {
-        if (notifyAndSound) {
-            Main.notify('Pomodoro Timer', `${this._sessionType} session is over!`);
-            this._playSound(); // <-- ADD THIS LINE
-        }
+      if (notifyAndSound) {
+        Main.notify('Pomodoro Timer', `${this._sessionType} session is over!`);
+        this._playSound();
+      }
 
-        if (this._sessionType === Session.WORK) {
-            this._workCycleCount++;
+      if (this._sessionType === Session.WORK) {
+        this._workCycleCount++;
 
-            // --- NEW: Daily Cycle Counter Logic ---
-            const todayStr = GLib.DateTime.new_now_local().format('%Y-%m-%d');
-            const lastDate = this._settings.get_string('last-cycle-date');
+        const todayStr = GLib.DateTime.new_now_local().format('%Y-%m-%d');
+        const lastDate = this._settings.get_string('last-cycle-date');
 
-            if (todayStr !== lastDate) {
-                this._cyclesToday = 1; // First cycle of a new day
-            } else {
-                this._cyclesToday++; // It's the same day, increment
-            }
-            
-            // Save the new count and date immediately to settings for persistence
-            this._settings.set_int('cycles-today', this._cyclesToday);
-            this._settings.set_string('last-cycle-date', todayStr);
-
-            if (this._workCycleCount >= CYCLES_BEFORE_LONG_BREAK) {
-                this._sessionType = Session.LONG_BREAK;
-                this._timeLeft = LONG_BREAK_DURATION;
-                this._workCycleCount = 0;
-            } else {
-                this._sessionType = Session.SHORT_BREAK;
-                this._timeLeft = SHORT_BREAK_DURATION;
-            }
+        if (todayStr !== lastDate) {
+          this._cyclesToday = 1;
         } else {
-            this._sessionType = Session.WORK;
-            this._timeLeft = WORK_DURATION;
+          this._cyclesToday++;
         }
-        this._start();
+
+        this._settings.set_int('cycles-today', this._cyclesToday);
+        this._settings.set_string('last-cycle-date', todayStr);
+
+        if (this._workCycleCount >= CYCLES_BEFORE_LONG_BREAK) {
+          this._sessionType = Session.LONG_BREAK;
+          this._timeLeft = LONG_BREAK_DURATION;
+          this._workCycleCount = 0;
+        } else {
+          this._sessionType = Session.SHORT_BREAK;
+          this._timeLeft = SHORT_BREAK_DURATION;
+        }
+      } else {
+        this._sessionType = Session.WORK;
+        this._timeLeft = WORK_DURATION;
+      }
+      this._start();
     }
 
-    
+
     _formatTime(seconds) {
-        let mins = Math.floor(seconds / 60);
-        let secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      let mins = Math.floor(seconds / 60);
+      let secs = seconds % 60;
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     }
 
     _updateUI() {
-        this._label.set_text(this._formatTime(this._timeLeft));
-        
-        // NEW: Update progress menu item text
-        const progressText = `Until Long Break: ${this._workCycleCount} / ${CYCLES_BEFORE_LONG_BREAK} | Today: ${this._cyclesToday}`;
-        this._progressMenuItem.label.set_text(progressText);
+      this._label.set_text(this._formatTime(this._timeLeft));
 
-        const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
-        const iconPath = this._extension.path + `/assets/img/${iconName}`;
-        try {
-            this._icon.gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(iconPath) });
-        } catch (e) {
-            this._icon.icon_name = 'dialog-error-symbolic';
-        }
+      const progressText = `Until Long Break: ${this._workCycleCount} / ${CYCLES_BEFORE_LONG_BREAK} | Today: ${this._cyclesToday}`;
+      this._progressMenuItem.label.set_text(progressText);
 
-        switch (this._state) {
-            case State.RUNNING: this._startPauseItem.label.set_text('Pause'); break;
-            case State.PAUSED: this._startPauseItem.label.set_text('Resume'); break;
-            case State.STOPPED: this._startPauseItem.label.set_text('Start'); break;
-        }
+      const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
+      const iconPath = this._extension.path + `/assets/img/${iconName}`;
+      try {
+        this._icon.gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(iconPath) });
+      } catch (e) {
+        this._icon.icon_name = 'dialog-error-symbolic';
+      }
+
+      switch (this._state) {
+        case State.RUNNING: this._startPauseItem.label.set_text('Pause'); break;
+        case State.PAUSED: this._startPauseItem.label.set_text('Resume'); break;
+        case State.STOPPED: this._startPauseItem.label.set_text('Start'); break;
+      }
     }
 
     destroy() {
-        if (this._timerId) {
-            GLib.source_remove(this._timerId);
-            this._timerId = null;
-        }
-        this._saveState();
-        super.destroy();
+      if (this._timerId) {
+        GLib.source_remove(this._timerId);
+        this._timerId = null;
+      }
+      this._saveState();
+      super.destroy();
     }
 
     _playSound() {
-        // This path must match the location of your sound file inside your extension's directory.
-        const soundFile = this._extension.path + '/assets/audio/ring.mp3';
-        try {
-            if (Gio.File.new_for_path(soundFile).query_exists(null)) {
-                // Uses 'paplay' (PulseAudio) to play the sound file.
-                GLib.spawn_command_line_async(`paplay ${soundFile}`);
-            } else {
-                Main.notify('Pomodoro Timer', 'Sound file not found.');
-            }
-        } catch (e) {
-            // Using log() as logError is not defined in the target code.
-            log(`Pomodoro Timer: Failed to play sound. ${e}`);
+      const soundFile = this._extension.path + '/assets/audio/ring.mp3';
+      try {
+        if (Gio.File.new_for_path(soundFile).query_exists(null)) {
+          GLib.spawn_command_line_async(`paplay ${soundFile}`);
+        } else {
+          Main.notify('Pomodoro Timer', 'Sound file not found.');
         }
+      } catch (e) {
+        log(`Pomodoro Timer: Failed to play sound. ${e}`);
+      }
     }
 
-});
+  });
 
 
 // --- Main Extension Class ---
 export default class PomodoroExtension extends Extension {
-    enable() {
-        this._settings = getSettings(this);
-        this._indicator = new PomodoroTimer(this, this._settings);
-        Main.panel.addToStatusArea('pomodoro-timer', this._indicator);
-    }
+  enable() {
+    this._settings = getSettings(this);
+    this._indicator = new PomodoroTimer(this, this._settings);
+    Main.panel.addToStatusArea('pomodoro-timer', this._indicator);
+  }
 
-    disable() {
-        if (this._indicator) {
-            this._indicator.destroy();
-            this._indicator = null;
-        }
-        this._settings = null;
+  disable() {
+    if (this._indicator) {
+      this._indicator.destroy();
+      this._indicator = null;
     }
+    this._settings = null;
+  }
 }
