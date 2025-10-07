@@ -26,7 +26,6 @@
       <summary>The timestamp of the last save</summary>
       <description>The monotonic time when the extension was last disabled. This is used to calculate elapsed time.</description>
     </key>
-
     <key name="cycles-today" type="i">
       <default>0</default>
       <summary>Work cycles completed today</summary>
@@ -37,5 +36,25 @@
       <summary>Date of the last cycle count</summary>
       <description>The date (YYYY-MM-DD) corresponding to the 'cycles-today' count. Used to reset the count daily.</description>
     </key>
+
+    <!-- REMOVED: The old single-task keys have been removed. -->
+    <!-- <key name="task-name" ...> -->
+    <!-- <key name="task-target-intervals" ...> -->
+    <!-- <key name="task-completed-intervals" ...> -->
+
+    <!-- NEW: A string array to store all tasks as JSON objects. -->
+    <key name="tasks" type="as">
+      <default>[]</default>
+      <summary>List of all tasks</summary>
+      <description>Each string is a JSON object representing a task: {id, name, target, completed}.</description>
+    </key>
+
+    <!-- NEW: The ID of the currently selected task. -->
+    <key name="active-task-id" type="s">
+      <default>''</default>
+      <summary>The ID of the currently active task</summary>
+      <description>If empty, no task is active.</description>
+    </key>
   </schema>
 </schemalist>
+
