@@ -89,11 +89,11 @@ const PomodoroTimer = GObject.registerClass(
       const todayStr = GLib.DateTime.new_now_local().format('%Y-%m-%d');
       const lastDate = this._settings.get_string('last-cycle-date');
 
-      if (todayStr === lastDate) {
-        this._cyclesToday = this._settings.get_int('cycles-today');
-      } else {
-        this._cyclesToday = 0;
+      if (todayStr !== lastDate) {
+        this._cyclesToday = 0; // Reset if it's a new day
         this._tasks.forEach(task => task.completed = 0);
+      } else {
+        this._cyclesToday = this._settings.get_int('cycles-today');
       }
 
       this._activeTaskId = this._settings.get_string('active-task-id');
@@ -109,8 +109,10 @@ const PomodoroTimer = GObject.registerClass(
       this._workCycleCount = this._settings.get_int('work-cycle-count');
       this._sessionType = this._settings.get_string('session-type');
 
-      if (this._state === State.RUNNING) {
-        this._start();
+      if (state === State.RUNNING) {
+        this._state = State.PAUSED;
+      } else {
+        this._state = state;
       }
     }
 
@@ -138,11 +140,9 @@ const PomodoroTimer = GObject.registerClass(
       this._taskProgressMenuItem.sensitive = false;
       this.menu.addMenuItem(this._taskProgressMenuItem);
 
-      // REWORKED: This section now holds the dynamic list of tasks.
       this._taskSection = new PopupMenu.PopupMenuSection();
       this.menu.addMenuItem(this._taskSection);
 
-      // Section for adding a new task
       let addTaskSeparator = new PopupMenu.PopupSeparatorMenuItem("ADD NEW TASK");
       this.menu.addMenuItem(addTaskSeparator);
       let addTaskItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
@@ -170,16 +170,19 @@ const PomodoroTimer = GObject.registerClass(
       this._startPauseItem.connect('activate', () => this._toggleTimer());
       this.menu.addMenuItem(this._startPauseItem);
 
-      let resetItem = new PopupMenu.PopupMenuItem('Reset');
+      let resetItem = new PopupMenu.PopupMenuItem('Reset Timer');
       resetItem.connect('activate', () => this._reset());
       this.menu.addMenuItem(resetItem);
+
+      // --- NEW BUTTON ---
+      let resetDailyItem = new PopupMenu.PopupMenuItem('Reset Daily Progress');
+      resetDailyItem.connect('activate', () => this._resetDailyProgress());
+      this.menu.addMenuItem(resetDailyItem);
     }
 
-    // REWORKED: Complete overhaul of the task menu for better UX.
     _rebuildTaskMenu() {
       this._taskSection.removeAll();
 
-      // Add the "None" option first
       let noneItem = new PopupMenu.PopupMenuItem('No Active Task');
       if (!this._activeTaskId) {
         noneItem.setOrnament(PopupMenu.Ornament.DOT);
@@ -189,35 +192,41 @@ const PomodoroTimer = GObject.registerClass(
 
       this._taskSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-      // Add each user-created task
       this._tasks.forEach(task => {
-        // Use a BaseMenuItem to hold a box layout for more control
         let taskItem = new PopupMenu.PopupBaseMenuItem();
         let itemBox = new St.BoxLayout({ vertical: false, x_expand: true, style: 'spacing: 10px;' });
         taskItem.add_child(itemBox);
 
-        // The main label for the task, expands to fill space
         let label = new St.Label({ text: `${task.name} (${task.completed}/${task.target})`, x_expand: true });
         itemBox.add_child(label);
 
-        // Delete button
         let deleteButton = new St.Button({
           style_class: 'button icon-button',
           child: new St.Icon({ icon_name: 'edit-delete-symbolic', style_class: 'popup-menu-icon' })
         });
         deleteButton.connect('clicked', () => this._deleteTask(task.id));
         itemBox.add_child(deleteButton);
-
-        // Clicking anywhere on the item (except the button) sets it active
         taskItem.connect('activate', () => this._setActiveTask(task.id));
 
-        // Set the "radio" dot if it's the active task
         if (task.id === this._activeTaskId) {
           taskItem.setOrnament(PopupMenu.Ornament.DOT);
         }
 
         this._taskSection.addMenuItem(taskItem);
       });
+    }
+
+    // --- NEW FUNCTION ---
+    _resetDailyProgress() {
+      this._cyclesToday = 0;
+      this._tasks.forEach(task => {
+        task.completed = 0;
+      });
+
+      Main.notify('Pomodoro Timer', 'Daily progress has been reset.');
+
+      this._updateUI();
+      this._saveState();
     }
 
     _addTask() {
@@ -232,8 +241,6 @@ const PomodoroTimer = GObject.registerClass(
         this._tasks.push(newTask);
         this._taskNameEntry.set_text('');
         this._taskIntervalsEntry.set_text('');
-
-        // ENHANCEMENT: Automatically set the new task as active
         this._setActiveTask(newTask.id);
       } else {
         Main.notify('Pomodoro Timer', 'Please provide a valid name and positive number.');
@@ -325,7 +332,7 @@ const PomodoroTimer = GObject.registerClass(
     _toggleTimer() { if (this._state === State.RUNNING) this._pause(); else this._start() }
     _start() { if (this._timerId) GLib.source_remove(this._timerId); this._state = State.RUNNING; this._updateUI(); this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => { this._timeLeft--; this._updateUI(); this._saveState(); if (this._timeLeft <= 0) { this._sessionFinished(); return GLib.SOURCE_REMOVE } return GLib.SOURCE_CONTINUE }) }
     _pause() { if (!this._timerId) return; this._state = State.PAUSED; GLib.source_remove(this._timerId); this._timerId = null; this._updateUI() }
-    _reset() { if (this._timerId) { GLib.source_remove(this._timerId); this._timerId = null } this._state = State.STOPPED; this._sessionType = Session.WORK; this._timeLeft = WORK_DURATION; this._workCycleCount = 0; this._updateUI() }
+    _reset() { if (this._timerId) { GLib.source_remove(this._timerId); this._timerId = null } this._state = State.STOPPED; this._sessionType = Session.WORK; this._timeLeft = WORK_DURATION; this._workCycleCount = 0; this._updateUI(); this._saveState() }
     _formatTime(seconds) { let mins = Math.floor(seconds / 60); let secs = seconds % 60; return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}` }
     destroy() { if (this._timerId) { GLib.source_remove(this._timerId); this._timerId = null } this._saveState(); super.destroy() }
     _playSound() { const soundFile = this._extension.path + '/assets/audio/ring.mp3'; try { if (Gio.File.new_for_path(soundFile).query_exists(null)) { GLib.spawn_command_line_async(`paplay ${soundFile}`) } else { Main.notify('Pomodoro Timer', 'Sound file not found.') } } catch (e) { log(`Pomodoro Timer: Failed to play sound. ${e}`) } }
@@ -343,4 +350,3 @@ export default class PomodoroExtension extends Extension {
     this._settings = null;
   }
 }
-
