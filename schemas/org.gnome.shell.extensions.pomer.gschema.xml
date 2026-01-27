@@ -1,60 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="org.gnome.shell.extensions.pomer" path="/org/gnome/shell/extensions/pomer/">
-    <key name="time-left" type="i">
-      <default>0</default>
-      <summary>Time left in seconds</summary>
-      <description>The remaining time for the current timer session.</description>
-    </key>
-    <key name="work-cycle-count" type="i">
-      <default>0</default>
-      <summary>Completed work cycles</summary>
-      <description>How many work cycles have been completed towards a long break.</description>
-    </key>
-    <key name="session-type" type="s">
-      <default>'Work'</default>
-      <summary>Current session type</summary>
-      <description>The type of the current session (e.g., Work, Short Break).</description>
-    </key>
-    <key name="timer-state" type="i">
-      <default>0</default>
-      <summary>The state of the timer</summary>
-      <description>0: Stopped, 1: Running, 2: Paused.</description>
-    </key>
-    <key name="quit-time" type="x">
-      <default>0</default>
-      <summary>The timestamp of the last save</summary>
-      <description>The monotonic time when the extension was last disabled. This is used to calculate elapsed time.</description>
-    </key>
-    <key name="cycles-today" type="i">
-      <default>0</default>
-      <summary>Work cycles completed today</summary>
-      <description>The total number of work cycles completed on the current day.</description>
-    </key>
-    <key name="last-cycle-date" type="s">
-      <default>''</default>
-      <summary>Date of the last cycle count</summary>
-      <description>The date (YYYY-MM-DD) corresponding to the 'cycles-today' count. Used to reset the count daily.</description>
-    </key>
+    <key name="time-left" type="i"><default>0</default></key>
+    <key name="work-cycle-count" type="i"><default>0</default></key>
+    <key name="session-type" type="s"><default>'Work'</default></key>
+    <key name="timer-state" type="i"><default>0</default></key>
+    <key name="quit-time" type="x"><default>0</default></key>
+    <key name="cycles-today" type="i"><default>0</default></key>
+    <key name="last-cycle-date" type="s"><default>''</default></key>
+    <key name="tasks" type="as"><default>[]</default></key>
+    <key name="active-task-id" type="s"><default>''</default></key>
+    <key name="completion-history" type="s"><default>"{}"</default></key>
 
-    <!-- REMOVED: The old single-task keys have been removed. -->
-    <!-- <key name="task-name" ...> -->
-    <!-- <key name="task-target-intervals" ...> -->
-    <!-- <key name="task-completed-intervals" ...> -->
-
-    <!-- NEW: A string array to store all tasks as JSON objects. -->
-    <key name="tasks" type="as">
-      <default>[]</default>
-      <summary>List of all tasks</summary>
-      <description>Each string is a JSON object representing a task: {id, name, target, completed}.</description>
+    <key name="work-minutes" type="i">
+      <default>25</default>
+      <summary>Work duration in minutes</summary>
     </key>
-
-    <!-- NEW: The ID of the currently selected task. -->
-    <key name="active-task-id" type="s">
-      <default>''</default>
-      <summary>The ID of the currently active task</summary>
-      <description>If empty, no task is active.</description>
+    <key name="short-break-minutes" type="i">
+      <default>5</default>
+      <summary>Short break duration in minutes</summary>
+    </key>
+    <key name="long-break-minutes" type="i">
+      <default>15</default>
+      <summary>Long break duration in minutes</summary>
+    </key>
+    <key name="cycles-before-long-break" type="i">
+      <default>4</default>
+      <summary>Work intervals before a long break</summary>
     </key>
   </schema>
 </schemalist>
-
