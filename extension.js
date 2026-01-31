@@ -152,8 +152,36 @@ const PomodoroTimer = GObject.registerClass(
       this._taskProgressMenuItem.sensitive = false;
       this.menu.addMenuItem(this._taskProgressMenuItem);
 
+      // --- Task Section (Static Structure) ---
       this._taskSection = new PopupMenu.PopupMenuSection();
       this.menu.addMenuItem(this._taskSection);
+
+      // 1. "No Active Task" Item (Persistent)
+      this._noTaskItem = new PopupMenu.PopupMenuItem('No Active Task');
+      this._noTaskItem.connect('activate', () => this._setActiveTask(null));
+      this._taskSection.addMenuItem(this._noTaskItem);
+
+      this._taskSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+      // 2. Scrollable Task List (Persistent)
+      this._taskListScrollItem = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+      let containerBox = new St.BoxLayout({ vertical: true, x_expand: true });
+
+      this._taskScrollView = new St.ScrollView({
+        hscrollbar_policy: St.PolicyType.NEVER,
+        vscrollbar_policy: St.PolicyType.AUTOMATIC,
+        enable_mouse_scrolling: true,
+        style_class: 'vfade',
+        style: 'max-height: 200px;'
+      });
+
+      this._taskList = new St.BoxLayout({ vertical: true, x_expand: true });
+      this._taskScrollView.set_child(this._taskList);
+      containerBox.add_child(this._taskScrollView);
+      this._taskListScrollItem.add_child(containerBox);
+
+      this._taskSection.addMenuItem(this._taskListScrollItem);
+      // ----------------------------------------
 
       // --- Add Task UI ---
       let addTaskSeparator = new PopupMenu.PopupSeparatorMenuItem("ADD NEW TASK");
@@ -375,26 +403,73 @@ const PomodoroTimer = GObject.registerClass(
     }
 
     _rebuildTaskMenu() {
-      this._taskSection.removeAll();
+      // 1. Update "No Task" Ornament
+      if (!this._activeTaskId) this._noTaskItem.setOrnament(PopupMenu.Ornament.DOT);
+      else this._noTaskItem.setOrnament(PopupMenu.Ornament.NONE);
 
-      let noneItem = new PopupMenu.PopupMenuItem('No Active Task');
-      if (!this._activeTaskId) noneItem.setOrnament(PopupMenu.Ornament.DOT);
-      noneItem.connect('activate', () => this._setActiveTask(null));
-      this._taskSection.addMenuItem(noneItem);
-      this._taskSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      // 2. Hide Scroll Area if no tasks
+      if (this._tasks.length === 0) {
+        this._taskListScrollItem.hide();
+        return;
+      }
+      this._taskListScrollItem.show();
+
+      // 3. Preserve Scroll Position
+      let savedScroll = this._taskScrollView.vadjustment.value;
+
+      // 4. Update List Content (Don't destroy the scroll view)
+      this._taskList.destroy_all_children();
 
       this._tasks.forEach(task => {
-        let taskItem = new PopupMenu.PopupBaseMenuItem();
-        let itemBox = new St.BoxLayout({ vertical: false, x_expand: true, style: 'spacing: 10px;' });
-        taskItem.add_child(itemBox);
-        itemBox.add_child(new St.Label({ text: `${task.name} (${task.completed}/${task.target})`, x_expand: true }));
-        let deleteButton = new St.Button({ style_class: 'button icon-button', child: new St.Icon({ icon_name: 'edit-delete-symbolic', style_class: 'popup-menu-icon' }) });
+        let taskRow = new St.Button({
+          style_class: 'popup-menu-item',
+          x_expand: true,
+          can_focus: true,
+          style: 'border-radius: 0;'
+        });
+
+        let rowBox = new St.BoxLayout({ style: 'spacing: 10px;', x_expand: true });
+        taskRow.set_child(rowBox);
+
+        let isSelected = (task.id === this._activeTaskId);
+        let iconName = isSelected ? 'object-select-symbolic' : '';
+
+        let ornamentIcon = new St.Icon({
+          icon_name: iconName,
+          icon_size: 14,
+          style: 'width: 16px;'
+        });
+        rowBox.add_child(ornamentIcon);
+
+        let label = new St.Label({
+          text: `${task.name} (${task.completed}/${task.target})`,
+          x_expand: true,
+          y_align: Clutter.ActorAlign.CENTER
+        });
+        rowBox.add_child(label);
+
+        let deleteButton = new St.Button({
+          style_class: 'button icon-button',
+          child: new St.Icon({ icon_name: 'edit-delete-symbolic', style_class: 'popup-menu-icon' })
+        });
+
         deleteButton.connect('clicked', () => this._deleteTask(task.id));
-        itemBox.add_child(deleteButton);
-        taskItem.connect('activate', () => this._setActiveTask(task.id));
-        if (task.id === this._activeTaskId) taskItem.setOrnament(PopupMenu.Ornament.DOT);
-        this._taskSection.addMenuItem(taskItem);
+        rowBox.add_child(deleteButton);
+
+        taskRow.connect('clicked', () => this._setActiveTask(task.id));
+
+        this._taskList.add_child(taskRow);
       });
+
+      // 5. Restore Scroll Position (on idle to ensure layout is ready)
+      if (savedScroll > 0) {
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+          if (this._taskScrollView) {
+            this._taskScrollView.vadjustment.set_value(savedScroll);
+          }
+          return GLib.SOURCE_REMOVE;
+        });
+      }
     }
 
     _resetDailyProgress() {
@@ -456,8 +531,6 @@ const PomodoroTimer = GObject.registerClass(
           this._cyclesToday++;
         }
 
-        // --- UPDATED LOGIC HERE ---
-        // 1. Determine Task Name/ID (Default to 'General' if no task active)
         let taskId = 'general';
         let taskName = 'General Work';
 
@@ -470,7 +543,6 @@ const PomodoroTimer = GObject.registerClass(
           }
         }
 
-        // 2. Always save to history (so the calendar updates)
         if (!this._completionHistory[todayStr]) {
           this._completionHistory[todayStr] = [];
         }
@@ -478,10 +550,9 @@ const PomodoroTimer = GObject.registerClass(
         this._completionHistory[todayStr].push({
           taskId: taskId,
           taskName: taskName,
-          duration: workMin // Store current duration setting
+          duration: workMin
         });
 
-        // 3. Immediately refresh calendar to show new time
         this._buildCalendarUI();
 
         if (this._workCycleCount >= cyclesBeforeLong) {
