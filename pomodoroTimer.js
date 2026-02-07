@@ -114,10 +114,6 @@ export const PomodoroTimer = GObject.registerClass(
       this._taskProgressMenuItem.sensitive = false;
       this.menu.addMenuItem(this._taskProgressMenuItem, 1);
 
-      this._syncItem = new PopupMenu.PopupMenuItem('Sync Data');
-      this._syncItem.connect('activate', () => this._performSync());
-      this.menu.addMenuItem(this._syncItem);
-
       let historyHeader = new PopupMenu.PopupMenuItem('History');
       historyHeader.sensitive = false;
       this.menu.addMenuItem(historyHeader);
@@ -131,6 +127,10 @@ export const PomodoroTimer = GObject.registerClass(
       let resetItem = new PopupMenu.PopupMenuItem('Reset Timer');
       resetItem.connect('activate', () => this._reset());
       this.menu.addMenuItem(resetItem);
+
+      this._syncItem = new PopupMenu.PopupMenuItem('Sync Data');
+      this._syncItem.connect('activate', () => this._performSync());
+      this.menu.addMenuItem(this._syncItem);
 
       // let resetDailyItem = new PopupMenu.PopupMenuItem('Reset Daily Progress');
       // resetDailyItem.connect('activate', () => this._resetDailyProgress());
