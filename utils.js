@@ -30,9 +30,16 @@ export function formatTime(seconds) {
 
 export function playSound(extensionPath) {
   const soundFile = extensionPath + '/assets/audio/ring.mp3';
+
   try {
     if (Gio.File.new_for_path(soundFile).query_exists(null)) {
-      GLib.spawn_command_line_async(`paplay ${soundFile}`);
+
+      const command = `gst-play-1.0 --no-interactive '${soundFile}'`;
+
+      // Alternatively, if you want to stick to paplay but safeguard it:
+      // const command = `paplay '${soundFile}'`;
+
+      GLib.spawn_command_line_async(command);
     } else {
       Main.notify('Pomodoro Timer', 'Sound file not found.');
     }
