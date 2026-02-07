@@ -36,10 +36,12 @@ export class SyncService {
       throw new Error('Missing SYNC_URL or SYNC_TOKEN in .env');
     }
 
+    // FIX IS HERE: Changed 'localDataPayload' to 'localData'
     const payload = {
-      updatedAt: localDataPayload.updatedAt || Date.now(),
-      payload: localDataPayload
+      updatedAt: localData.updatedAt || Date.now(),
+      payload: localData
     };
+
     const message = Soup.Message.new('POST', this._config.SYNC_URL);
 
     message.request_headers.append('Authorization', `Bearer ${this._config.SYNC_TOKEN}`);
@@ -59,6 +61,8 @@ export class SyncService {
           const responseText = decoder.decode(bytes.get_data());
 
           if (message.status_code !== 200) {
+            // Log the actual server response for debugging
+            console.error(`Sync Failed: ${message.status_code} - ${responseText}`);
             reject(new Error(`Server Error: ${message.status_code}`));
             return;
           }
