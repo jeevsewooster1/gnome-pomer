@@ -8,6 +8,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { Storage } from './storage.js';
+import { SyncService } from './syncService.js';
 import { HistoryView } from './ui/historyView.js';
 import { TaskView } from './ui/taskView.js';
 import { getLogicalDate, formatTime, playSound } from './utils.js';
@@ -21,6 +22,7 @@ export const PomodoroTimer = GObject.registerClass(
       this._extension = extension;
       this._storage = new Storage(settings);
       this._settings = settings;
+      this._syncService = new SyncService(extension.path);
 
       this._state = State.STOPPED;
       this._sessionType = Session.WORK;
@@ -111,6 +113,10 @@ export const PomodoroTimer = GObject.registerClass(
       this._taskProgressMenuItem = new PopupMenu.PopupMenuItem('');
       this._taskProgressMenuItem.sensitive = false;
       this.menu.addMenuItem(this._taskProgressMenuItem, 1);
+
+      this._syncItem = new PopupMenu.PopupMenuItem('Sync Data');
+      this._syncItem.connect('activate', () => this._performSync());
+      this.menu.addMenuItem(this._syncItem);
 
       let historyHeader = new PopupMenu.PopupMenuItem('History');
       historyHeader.sensitive = false;
@@ -328,6 +334,59 @@ export const PomodoroTimer = GObject.registerClass(
       }
       this._saveState();
       super.destroy();
+    }
+
+    async _performSync() {
+      this._syncItem.setSensitive(false);
+      this._syncItem.label.set_text('Syncing...');
+
+      try {
+        // 1. Get the REAL modification time from storage
+        const lastModified = this._storage.lastUpdated;
+
+        const fullLocalData = {
+          timerState: this._storage.getTimerState(),
+          tasks: this._tasks,
+          history: this._completionHistory,
+          // We send the internal storage timestamp, NOT Date.now()
+          updatedAt: lastModified
+        };
+
+        // 2. Send to Server (Note: we pass fullLocalData directly to sync service)
+        // You might need to tweak syncService.js to use fullLocalData.updatedAt
+        // OR update syncService to accept (data, timestamp)
+        const result = await this._syncService.sync(fullLocalData);
+
+        // 3. Handle Result
+        if (result.serverData) {
+          // Server had newer data. The server sends back the payload.
+          const remote = result.serverData.payload;
+
+          // IMPORTANT: When we load remote data, we DO NOT update the timestamp
+          // to "now", we want to keep the server's timestamp or just save data 
+          // without triggering a new 'setLastUpdated' if possible.
+          // However, for simplicity, we just save it.
+
+          if (remote.timerState) this._storage.saveTimerState(remote.timerState);
+          if (remote.tasks) this._storage.saveTasks(remote.tasks);
+          if (remote.history) this._storage.saveHistory(remote.history);
+
+          // Reload logic
+          this._loadState();
+          this._updateUI();
+          Main.notify('Pomodoro Sync', 'Data downloaded from Server');
+        } else {
+          // Server accepted our data
+          Main.notify('Pomodoro Sync', 'Upload Successful');
+        }
+
+      } catch (e) {
+        global.log(e); // Check "Journal" in Gnome Logs if this fails
+        Main.notify('Sync Error', e.message);
+      } finally {
+        this._syncItem.setSensitive(true);
+        this._syncItem.label.set_text('Sync Data');
+      }
     }
   }
 );
