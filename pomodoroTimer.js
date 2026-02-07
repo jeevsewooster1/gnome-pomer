@@ -20,9 +20,8 @@ export const PomodoroTimer = GObject.registerClass(
 
       this._extension = extension;
       this._storage = new Storage(settings);
-      this._settings = settings; // Keep raw settings for signal connections if needed
+      this._settings = settings;
 
-      // Core State
       this._state = State.STOPPED;
       this._sessionType = Session.WORK;
       this._timeLeft = this._storage.workMinutes * 60;
@@ -30,12 +29,10 @@ export const PomodoroTimer = GObject.registerClass(
       this._workCycleCount = 0;
       this._cyclesToday = 0;
 
-      // Data State
       this._tasks = [];
       this._activeTaskId = null;
       this._completionHistory = {};
 
-      // UI Elements
       this._label = new St.Label({
         text: formatTime(this._timeLeft),
         y_align: Clutter.ActorAlign.CENTER
@@ -47,13 +44,12 @@ export const PomodoroTimer = GObject.registerClass(
       box.add_child(this._label);
       this.add_child(box);
 
-      // Initialize Views
       this._historyView = new HistoryView();
       this._taskView = new TaskView(this.menu);
 
       this._setupTaskCallbacks();
-      this._loadState();
       this._buildMenu();
+      this._loadState();
       this._updateUI();
     }
 
@@ -72,7 +68,6 @@ export const PomodoroTimer = GObject.registerClass(
 
       const storedState = this._storage.getTimerState();
 
-      // Check for day rollover
       const todayStr = getLogicalDate().format('%Y-%m-%d');
       if (todayStr !== storedState.lastDate) {
         this._cyclesToday = 0;
@@ -88,7 +83,6 @@ export const PomodoroTimer = GObject.registerClass(
         return;
       }
 
-      // Restore running/paused state
       this._state = (storedState.state === State.RUNNING) ? State.PAUSED : storedState.state;
       this._timeLeft = storedState.timeLeft;
       this._workCycleCount = storedState.workCycleCount;
@@ -110,25 +104,20 @@ export const PomodoroTimer = GObject.registerClass(
     }
 
     _buildMenu() {
-      // 1. Status Items
       this._progressMenuItem = new PopupMenu.PopupMenuItem('');
       this._progressMenuItem.sensitive = false;
-      this.menu.addMenuItem(this._progressMenuItem, 0); // Insert at top
+      this.menu.addMenuItem(this._progressMenuItem, 0);
 
       this._taskProgressMenuItem = new PopupMenu.PopupMenuItem('');
       this._taskProgressMenuItem.sensitive = false;
       this.menu.addMenuItem(this._taskProgressMenuItem, 1);
 
-      // Note: TaskView inserted its items during construction directly into this.menu
-
-      // 2. Calendar / History Section
       let historyHeader = new PopupMenu.PopupMenuItem('History');
       historyHeader.sensitive = false;
       this.menu.addMenuItem(historyHeader);
       this.menu.addMenuItem(this._historyView.menuItem);
       this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-      // 3. Controls
       this._startPauseItem = new PopupMenu.PopupMenuItem('Start');
       this._startPauseItem.connect('activate', () => this._toggleTimer());
       this.menu.addMenuItem(this._startPauseItem);
@@ -137,13 +126,12 @@ export const PomodoroTimer = GObject.registerClass(
       resetItem.connect('activate', () => this._reset());
       this.menu.addMenuItem(resetItem);
 
-      let resetDailyItem = new PopupMenu.PopupMenuItem('Reset Daily Progress');
-      resetDailyItem.connect('activate', () => this._resetDailyProgress());
-      this.menu.addMenuItem(resetDailyItem);
+      // let resetDailyItem = new PopupMenu.PopupMenuItem('Reset Daily Progress');
+      // resetDailyItem.connect('activate', () => this._resetDailyProgress());
+      // this.menu.addMenuItem(resetDailyItem);
 
       this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-      // 4. Settings
       this._buildSettingsSubmenu();
     }
 
@@ -175,8 +163,6 @@ export const PomodoroTimer = GObject.registerClass(
       settingsSubMenu.menu.addMenuItem(createRow('Intervals per Cycle', Settings.CYCLES_BEFORE_LONG_BREAK));
     }
 
-    // --- Core Timer Logic ---
-
     _toggleTimer() {
       if (this._state === State.RUNNING) this._pause();
       else this._start();
@@ -190,7 +176,7 @@ export const PomodoroTimer = GObject.registerClass(
       this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
         this._timeLeft--;
         this._updateUI();
-        this._saveState(); // Auto-save on tick for crash recovery
+        this._saveState();
         if (this._timeLeft <= 0) {
           this._sessionFinished();
           return GLib.SOURCE_REMOVE;
@@ -245,7 +231,6 @@ export const PomodoroTimer = GObject.registerClass(
         this._cyclesToday++;
       }
 
-      // Update Task Progress
       let taskId = 'general';
       let taskName = 'General Work';
       if (this._activeTaskId) {
@@ -257,7 +242,6 @@ export const PomodoroTimer = GObject.registerClass(
         }
       }
 
-      // Update History
       if (!this._completionHistory[todayStr]) {
         this._completionHistory[todayStr] = [];
       }
@@ -267,7 +251,6 @@ export const PomodoroTimer = GObject.registerClass(
         duration: this._storage.workMinutes
       });
 
-      // Switch to Break
       if (this._workCycleCount >= this._storage.cyclesBeforeLongBreak) {
         this._sessionType = Session.LONG_BREAK;
         this._timeLeft = this._storage.longBreakMinutes * 60;
@@ -277,8 +260,6 @@ export const PomodoroTimer = GObject.registerClass(
         this._timeLeft = this._storage.shortBreakMinutes * 60;
       }
     }
-
-    // --- Data Management ---
 
     _addTask(name, target) {
       const newTask = { id: GLib.uuid_string_random(), name, target, completed: 0 };
@@ -306,10 +287,7 @@ export const PomodoroTimer = GObject.registerClass(
       Main.notify('Pomodoro Timer', 'Daily progress has been reset.');
     }
 
-    // --- UI Updates ---
-
     _updateUI() {
-      // 1. Top Bar
       this._label.set_text(formatTime(this._timeLeft));
 
       const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
@@ -320,7 +298,6 @@ export const PomodoroTimer = GObject.registerClass(
         this._icon.icon_name = 'dialog-error-symbolic';
       }
 
-      // 2. Progress Menu Items
       const cyclesBeforeLong = this._storage.cyclesBeforeLongBreak;
       this._progressMenuItem.label.set_text(
         `Until Long Break: ${this._workCycleCount}/${cyclesBeforeLong} | Today: ${this._cyclesToday}`
@@ -334,14 +311,12 @@ export const PomodoroTimer = GObject.registerClass(
         this._taskProgressMenuItem.hide();
       }
 
-      // 3. Control Label
       switch (this._state) {
         case State.RUNNING: this._startPauseItem.label.set_text('Pause'); break;
         case State.PAUSED: this._startPauseItem.label.set_text('Resume'); break;
         case State.STOPPED: this._startPauseItem.label.set_text('Start'); break;
       }
 
-      // 4. Delegate to Views
       this._taskView.update(this._tasks, this._activeTaskId);
       this._historyView.update(this._completionHistory, this._storage.workMinutes);
     }
