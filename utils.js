@@ -4,8 +4,6 @@ import Gst from 'gi://Gst';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { LOGICAL_DAY_OFFSET } from './constants.js';
 
-Gst.init(null);
-
 export function getSettings(extension) {
   let GioSSS = Gio.SettingsSchemaSource;
   let schemaSource = GioSSS.new_from_directory(
