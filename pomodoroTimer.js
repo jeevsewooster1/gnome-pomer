@@ -174,6 +174,10 @@ export const PomodoroTimer = GObject.registerClass(
       else this._start();
     }
 
+    toggleTimer() {
+      this._toggleTimer();
+    }
+
     _start() {
       if (this._timerId) GLib.source_remove(this._timerId);
       this._state = State.RUNNING;

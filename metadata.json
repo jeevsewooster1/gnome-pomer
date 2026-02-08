@@ -1,8 +1,16 @@
 {
-  "name": "Pomodoro Timer",
+  "name": "PoMer Timer",
   "description": "A simple Pomodoro timer in the panel.",
   "uuid": "pomer@v31dt",
   "shell-version": ["45", "46"],
-  "schema_id": "org.gnome.shell.extensions.pomer",
-  "version": 1.0
+  "settings-schema": "org.gnome.shell.extensions.pomer",
+  "version": 1.0,
+  "gettext-domain": "pomer", 
+  "key-bindings": { 
+    "toggle-timer": {
+      "name": "Toggle Timer",
+      "description": "Start or Pause the Pomodoro Timer",
+      "default": ["<Alt>p"] 
+    }
+  }   
 }
