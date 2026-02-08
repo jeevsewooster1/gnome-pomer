@@ -28,5 +28,9 @@
       <default>4</default>
       <summary>Work intervals before a long break</summary>
     </key>
+    <key name="last-updated" type="x">
+      <default>0</default>
+      <summary>Timestamp of the last data modification</summary>
+    </key>
   </schema>
 </schemalist>

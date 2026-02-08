@@ -32,6 +32,15 @@ export class Storage {
     this._settings.set_int(Settings.CYCLES_TODAY, stateData.cyclesToday);
     this._settings.set_string(Settings.LAST_CYCLE_DATE, stateData.lastDate);
     this._settings.set_int64(Settings.QUIT_TIME, GLib.get_monotonic_time());
+    this.setLastUpdated();
+  }
+
+  get lastUpdated() {
+    return this._settings.get_int64('last-updated');
+  }
+
+  setLastUpdated() {
+    this._settings.set_int64('last-updated', Date.now());
   }
 
   getTasks() {
@@ -44,6 +53,7 @@ export class Storage {
   saveTasks(tasks) {
     const tasksJson = tasks.map(task => JSON.stringify(task));
     this._settings.set_strv(Settings.TASKS, tasksJson);
+    this.setLastUpdated();
   }
 
   getHistory() {
@@ -57,5 +67,6 @@ export class Storage {
 
   saveHistory(history) {
     this._settings.set_string(Settings.COMPLETION_HISTORY, JSON.stringify(history));
+    this.setLastUpdated();
   }
 }
