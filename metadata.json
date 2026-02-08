@@ -10,7 +10,7 @@
     "toggle-timer": {
       "name": "Toggle Timer",
       "description": "Start or Pause the Pomodoro Timer",
-      "default": ["<Alt>p"] 
+      "default": ["<Control><Alt>p"] 
     }
   }   
 }

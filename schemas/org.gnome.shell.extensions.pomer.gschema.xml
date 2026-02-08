@@ -33,7 +33,7 @@
       <summary>Timestamp of the last data modification</summary>
     </key>
     <key name="toggle-timer" type="as">
-      <default>['&lt;Alt&gt;p']</default>
+      <default>['&lt;Control&gt;&lt;Alt&gt;p']</default>
       <summary>Shortcut to toggle the timer</summary>
     </key>
   </schema>

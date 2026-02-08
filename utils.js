@@ -4,6 +4,18 @@ import Gst from 'gi://Gst';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { LOGICAL_DAY_OFFSET } from './constants.js';
 
+try {
+  if (!Gst.is_initialized()) {
+    Gst.init(null);
+  }
+} catch (e) {
+  try {
+    Gst.init([]);
+  } catch (err) {
+    log(`Pomodoro Timer: Gst init warning: ${err.message}`);
+  }
+}
+
 export function getSettings(extension) {
   let GioSSS = Gio.SettingsSchemaSource;
   let schemaSource = GioSSS.new_from_directory(
@@ -34,27 +46,34 @@ export function playSound(extensionPath) {
   const file = Gio.File.new_for_path(soundFile);
 
   if (!file.query_exists(null)) {
-    Main.notify('Pomodoro Timer', 'Sound file not found.');
+    // Main.notify('Pomodoro Timer', 'Sound file not found.');
     return;
   }
 
   try {
-    let player = Gst.ElementFactory.make('playbin', null);
-    if (!player) return;
+    let player = Gst.ElementFactory.make("playbin", "player");
 
-    player.set_property('uri', file.get_uri());
+    if (!player) {
+
+      const command = `gst-play-1.0 --no-interactive '${soundFile}'`;
+      GLib.spawn_command_line_async(command);
+      return;
+    }
+
+    player.set_property("uri", file.get_uri());
     player.set_state(Gst.State.PLAYING);
 
     let bus = player.get_bus();
     bus.add_signal_watch();
 
-    const signalId = bus.connect('message', (bus, message) => {
+    const signalId = bus.connect("message", (bus, message) => {
       if (message.type === Gst.MessageType.EOS || message.type === Gst.MessageType.ERROR) {
         player.set_state(Gst.State.NULL);
-        bus.disconnect(signalId);
         bus.remove_signal_watch();
+        bus.disconnect(signalId);
       }
     });
+
   } catch (e) {
     log(`Pomodoro Timer: Failed to play sound. ${e}`);
   }
