@@ -1,7 +1,10 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import Gst from 'gi://Gst';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { LOGICAL_DAY_OFFSET } from './constants.js';
+
+Gst.init(null);
 
 export function getSettings(extension) {
   let GioSSS = Gio.SettingsSchemaSource;
@@ -29,20 +32,31 @@ export function formatTime(seconds) {
 }
 
 export function playSound(extensionPath) {
-  const soundFile = extensionPath + '/assets/audio/ring.mp3';
+  const soundFile = extensionPath + '/assets/audio/ring.ogg';
+  const file = Gio.File.new_for_path(soundFile);
+
+  if (!file.query_exists(null)) {
+    Main.notify('Pomodoro Timer', 'Sound file not found.');
+    return;
+  }
 
   try {
-    if (Gio.File.new_for_path(soundFile).query_exists(null)) {
+    let player = Gst.ElementFactory.make('playbin', null);
+    if (!player) return;
 
-      const command = `gst-play-1.0 --no-interactive '${soundFile}'`;
+    player.set_property('uri', file.get_uri());
+    player.set_state(Gst.State.PLAYING);
 
-      // Alternatively, if you want to stick to paplay but safeguard it:
-      // const command = `paplay '${soundFile}'`;
+    let bus = player.get_bus();
+    bus.add_signal_watch();
 
-      GLib.spawn_command_line_async(command);
-    } else {
-      Main.notify('Pomodoro Timer', 'Sound file not found.');
-    }
+    const signalId = bus.connect('message', (bus, message) => {
+      if (message.type === Gst.MessageType.EOS || message.type === Gst.MessageType.ERROR) {
+        player.set_state(Gst.State.NULL);
+        bus.disconnect(signalId);
+        bus.remove_signal_watch();
+      }
+    });
   } catch (e) {
     log(`Pomodoro Timer: Failed to play sound. ${e}`);
   }
