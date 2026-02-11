@@ -9,6 +9,12 @@ export default class PomodoroExtension extends Extension {
   enable() {
     console.log('POMER: Enabling extension...');
     this._settings = this.getSettings();
+
+    if (Main.panel.statusArea[this.uuid]) {
+      console.warn(`POMER: Removing zombie indicator for ${this.uuid}`);
+      Main.panel.statusArea[this.uuid].destroy();
+    }
+
     this._timer = new PomodoroTimer(this, this._settings);
     Main.panel.addToStatusArea(this.uuid, this._timer);
 

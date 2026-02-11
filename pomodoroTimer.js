@@ -12,7 +12,7 @@ import { SyncService } from './syncService.js';
 import { HistoryView } from './ui/historyView.js';
 import { TaskView } from './ui/taskView.js';
 import { getLogicalDate, formatTime, playSound } from './utils.js';
-import { State, Session, Settings, LOGICAL_DAY_OFFSET } from './constants.js';
+import { State, Session, Settings } from './constants.js';
 
 export const PomodoroTimer = GObject.registerClass(
   class PomodoroTimer extends PanelMenu.Button {
@@ -30,10 +30,17 @@ export const PomodoroTimer = GObject.registerClass(
       this._timerId = null;
       this._workCycleCount = 0;
       this._cyclesToday = 0;
+      this._lastTickTime = 0;
+
+      this._currentDateStr = getLogicalDate().format('%Y-%m-%d');
 
       this._tasks = [];
       this._activeTaskId = null;
       this._completionHistory = {};
+
+      this._screenShieldSignalId = Main.screenShield.connect('locked-changed', () => {
+        this._onSessionStateChanged();
+      });
 
       this._label = new St.Label({
         text: formatTime(this._timeLeft),
@@ -55,6 +62,15 @@ export const PomodoroTimer = GObject.registerClass(
       this._updateUI();
     }
 
+    _onSessionStateChanged() {
+      const isLocked = Main.screenShield.locked;
+      this.visible = !isLocked;
+      if (isLocked && this._state === State.RUNNING) {
+        this._pause();
+        Main.notify('Pomodoro Timer', 'Timer paused (Session Locked)');
+      }
+    }
+
     _setupTaskCallbacks() {
       this._taskView.setCallbacks({
         onTaskAdded: (name, target) => this._addTask(name, target),
@@ -64,21 +80,38 @@ export const PomodoroTimer = GObject.registerClass(
       });
     }
 
+    _checkAndResetDate() {
+      const todayStr = getLogicalDate().format('%Y-%m-%d');
+
+      if (todayStr !== this._currentDateStr) {
+        this._cyclesToday = 0;
+        this._tasks.forEach(task => task.completed = 0);
+        this._currentDateStr = todayStr;
+
+        this._updateUI();
+        this._saveState();
+
+        if (this._state === State.RUNNING) {
+          Main.notify('Pomodoro Timer', 'New day! Daily progress reset.');
+        }
+        return true;
+      }
+      return false;
+    }
+
     _loadState() {
       this._tasks = this._storage.getTasks();
       this._completionHistory = this._storage.getHistory();
 
       const storedState = this._storage.getTimerState();
 
-      const todayStr = getLogicalDate().format('%Y-%m-%d');
-      if (todayStr !== storedState.lastDate) {
-        this._cyclesToday = 0;
-        this._tasks.forEach(task => task.completed = 0);
-      } else {
-        this._cyclesToday = storedState.cyclesToday;
-      }
+      const storedDate = storedState.lastDate || getLogicalDate().format('%Y-%m-%d');
+      this._currentDateStr = storedDate;
 
+      this._cyclesToday = storedState.cyclesToday;
       this._activeTaskId = storedState.activeTaskId;
+
+      this._checkAndResetDate();
 
       if (storedState.state === State.STOPPED) {
         this._reset();
@@ -99,10 +132,18 @@ export const PomodoroTimer = GObject.registerClass(
         sessionType: this._sessionType,
         activeTaskId: this._activeTaskId,
         cyclesToday: this._cyclesToday,
-        lastDate: getLogicalDate().format('%Y-%m-%d')
+        lastDate: this._currentDateStr
       });
       this._storage.saveTasks(this._tasks);
       this._storage.saveHistory(this._completionHistory);
+    }
+
+    _resetDailyProgress() {
+      this._cyclesToday = 0;
+      this._tasks.forEach(task => task.completed = 0);
+      this._currentDateStr = getLogicalDate().format('%Y-%m-%d');
+      this._reset();
+      Main.notify('Pomodoro Timer', 'Daily progress has been reset.');
     }
 
     _buildMenu() {
@@ -180,13 +221,35 @@ export const PomodoroTimer = GObject.registerClass(
 
     _start() {
       if (this._timerId) GLib.source_remove(this._timerId);
+
+      if (Main.screenShield.locked) {
+        Main.notify('Pomodoro Timer', 'Cannot start timer while screen is locked.');
+        return;
+      }
+
       this._state = State.RUNNING;
       this._updateUI();
 
+      this._lastTickTime = Date.now();
+
       this._timerId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+        const now = Date.now();
+        const delta = now - this._lastTickTime;
+
+        if (delta > 5000) {
+          this._pause();
+          Main.notify('Pomodoro Timer', 'Timer paused (system sleep detected)');
+          return GLib.SOURCE_REMOVE;
+        }
+
+        this._lastTickTime = now;
+
+        this._checkAndResetDate();
+
         this._timeLeft--;
         this._updateUI();
         this._saveState();
+
         if (this._timeLeft <= 0) {
           this._sessionFinished();
           return GLib.SOURCE_REMOVE;
@@ -201,6 +264,7 @@ export const PomodoroTimer = GObject.registerClass(
       GLib.source_remove(this._timerId);
       this._timerId = null;
       this._updateUI();
+      this._saveState();
     }
 
     _reset() {
@@ -230,16 +294,10 @@ export const PomodoroTimer = GObject.registerClass(
     }
 
     _handleWorkSessionCompletion() {
-      this._workCycleCount++;
-      const todayStr = getLogicalDate().format('%Y-%m-%d');
-      const lastDate = this._storage.getTimerState().lastDate;
+      this._checkAndResetDate();
 
-      if (todayStr !== lastDate) {
-        this._cyclesToday = 1;
-        this._tasks.forEach(task => task.completed = 0);
-      } else {
-        this._cyclesToday++;
-      }
+      this._workCycleCount++;
+      this._cyclesToday++;
 
       let taskId = 'general';
       let taskName = 'General Work';
@@ -251,6 +309,8 @@ export const PomodoroTimer = GObject.registerClass(
           taskName = activeTask.name;
         }
       }
+
+      const todayStr = this._currentDateStr;
 
       if (!this._completionHistory[todayStr]) {
         this._completionHistory[todayStr] = [];
@@ -290,22 +350,22 @@ export const PomodoroTimer = GObject.registerClass(
       this._saveState();
     }
 
-    _resetDailyProgress() {
-      this._cyclesToday = 0;
-      this._tasks.forEach(task => task.completed = 0);
-      this._reset();
-      Main.notify('Pomodoro Timer', 'Daily progress has been reset.');
-    }
-
     _updateUI() {
+      if (this._state !== State.RUNNING) {
+        this._checkAndResetDate();
+      }
+
       this._label.set_text(formatTime(this._timeLeft));
 
-      const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
-      const iconPath = this._extension.path + `/assets/img/${iconName}`;
-      try {
-        this._icon.gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(iconPath) });
-      } catch (e) {
-        this._icon.icon_name = 'dialog-error-symbolic';
+      if (this._lastIconSessionType !== this._sessionType) {
+        const iconName = (this._sessionType === Session.WORK) ? 'work.png' : 'rest.png';
+        const iconPath = this._extension.path + `/assets/img/${iconName}`;
+        try {
+          this._icon.gicon = new Gio.FileIcon({ file: Gio.File.new_for_path(iconPath) });
+          this._lastIconSessionType = this._sessionType;
+        } catch (e) {
+          this._icon.icon_name = 'dialog-error-symbolic';
+        }
       }
 
       const cyclesBeforeLong = this._storage.cyclesBeforeLongBreak;
@@ -336,6 +396,12 @@ export const PomodoroTimer = GObject.registerClass(
         GLib.source_remove(this._timerId);
         this._timerId = null;
       }
+
+      if (this._screenShieldSignalId) {
+        Main.screenShield.disconnect(this._screenShieldSignalId);
+        this._screenShieldSignalId = null;
+      }
+
       this._saveState();
       super.destroy();
     }
@@ -345,47 +411,33 @@ export const PomodoroTimer = GObject.registerClass(
       this._syncItem.label.set_text('Syncing...');
 
       try {
-        // 1. Get the REAL modification time from storage
         const lastModified = this._storage.lastUpdated;
 
         const fullLocalData = {
           timerState: this._storage.getTimerState(),
           tasks: this._tasks,
           history: this._completionHistory,
-          // We send the internal storage timestamp, NOT Date.now()
           updatedAt: lastModified
         };
 
-        // 2. Send to Server (Note: we pass fullLocalData directly to sync service)
-        // You might need to tweak syncService.js to use fullLocalData.updatedAt
-        // OR update syncService to accept (data, timestamp)
         const result = await this._syncService.sync(fullLocalData);
 
-        // 3. Handle Result
         if (result.serverData) {
-          // Server had newer data. The server sends back the payload.
           const remote = result.serverData.payload;
-
-          // IMPORTANT: When we load remote data, we DO NOT update the timestamp
-          // to "now", we want to keep the server's timestamp or just save data 
-          // without triggering a new 'setLastUpdated' if possible.
-          // However, for simplicity, we just save it.
 
           if (remote.timerState) this._storage.saveTimerState(remote.timerState);
           if (remote.tasks) this._storage.saveTasks(remote.tasks);
           if (remote.history) this._storage.saveHistory(remote.history);
 
-          // Reload logic
           this._loadState();
           this._updateUI();
           Main.notify('Pomodoro Sync', 'Data downloaded from Server');
         } else {
-          // Server accepted our data
           Main.notify('Pomodoro Sync', 'Upload Successful');
         }
 
       } catch (e) {
-        global.log(e); // Check "Journal" in Gnome Logs if this fails
+        global.log(e);
         Main.notify('Sync Error', e.message);
       } finally {
         this._syncItem.setSensitive(true);
