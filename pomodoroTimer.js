@@ -406,6 +406,22 @@ export const PomodoroTimer = GObject.registerClass(
       super.destroy();
     }
 
+    toggleTimer() {
+      this._toggleTimer();
+    }
+
+    skipInterval() {
+      this._skipInterval();
+    }
+
+    resetTimer() {
+      this._reset();
+    }
+
+    _skipInterval() {
+      this._sessionFinished();
+    }
+
     async _performSync() {
       this._syncItem.setSensitive(false);
       this._syncItem.label.set_text('Syncing...');

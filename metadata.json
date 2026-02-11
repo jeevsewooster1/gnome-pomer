@@ -11,6 +11,16 @@
       "name": "Toggle Timer",
       "description": "Start or Pause the Pomodoro Timer",
       "default": ["<Control><Alt>p"] 
+    },
+    "skip-interval": {
+      "name": "Skip Interval",
+      "description": "Skip the current interval",
+      "default": ["<Control><Alt>s"] 
+    },
+    "reset-timer": {
+      "name": "Reset Timer",
+      "description": "Reset the timer to initial state",
+      "default": ["<Control><Alt>r"] 
     }
   }   
 }
