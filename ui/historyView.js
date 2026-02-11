@@ -128,7 +128,7 @@ export class HistoryView {
 
       const hours = Math.floor(totalMinutes / 60);
       const minutes = totalMinutes % 60;
-      timeString = (hours > 0) ? `${hours}h${minutes.toString().padStart(2, '0')}m` : `${minutes}m`;
+      timeString = (hours > 0) ? `${hours}h${minutes.toString().padStart(2, '0')}` : `${minutes}`;
       if (timeString === '0m') timeString = '0m';
     }
 
