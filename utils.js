@@ -1,32 +1,20 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import Gst from 'gi://Gst';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { LOGICAL_DAY_OFFSET } from './constants.js';
 
-try {
-  if (!Gst.is_initialized()) {
-    Gst.init(null);
-  }
-} catch (e) {
-  try {
-    Gst.init([]);
-  } catch (err) {
-    log(`Pomodoro Timer: Gst init warning: ${err.message}`);
-  }
-}
 
 export function getSettings(extension) {
-  let GioSSS = Gio.SettingsSchemaSource;
-  let schemaSource = GioSSS.new_from_directory(
+  let schemaId = 'org.gnome.shell.extensions.pomer';
+  let schemaSource = Gio.SettingsSchemaSource.new_from_directory(
     extension.dir.get_child("schemas").get_path(),
-    GioSSS.get_default(),
+    Gio.SettingsSchemaSource.get_default(),
     false
   );
 
-  let schemaObj = schemaSource.lookup('org.gnome.shell.extensions.pomer', true);
+  let schemaObj = schemaSource.lookup(schemaId, true);
   if (!schemaObj) {
-    throw new Error('Schema org.gnome.shell.extensions.pomer could not be found');
+    throw new Error(`Schema ${schemaId} could not be found`);
   }
   return new Gio.Settings({ settings_schema: schemaObj });
 }
@@ -42,39 +30,17 @@ export function formatTime(seconds) {
 }
 
 export function playSound(extensionPath) {
-  const soundFile = extensionPath + '/assets/audio/ring.ogg';
-  const file = Gio.File.new_for_path(soundFile);
+  const soundFile = Gio.File.new_for_path(extensionPath + '/assets/audio/ring.ogg');
 
-  if (!file.query_exists(null)) {
-    // Main.notify('Pomodoro Timer', 'Sound file not found.');
+  if (!soundFile.query_exists(null)) {
+    Main.notify('Pomodoro Timer', 'Sound file not found.');
     return;
   }
 
   try {
-    let player = Gst.ElementFactory.make("playbin", "player");
-
-    if (!player) {
-
-      const command = `gst-play-1.0 --no-interactive '${soundFile}'`;
-      GLib.spawn_command_line_async(command);
-      return;
-    }
-
-    player.set_property("uri", file.get_uri());
-    player.set_state(Gst.State.PLAYING);
-
-    let bus = player.get_bus();
-    bus.add_signal_watch();
-
-    const signalId = bus.connect("message", (bus, message) => {
-      if (message.type === Gst.MessageType.EOS || message.type === Gst.MessageType.ERROR) {
-        player.set_state(Gst.State.NULL);
-        bus.remove_signal_watch();
-        bus.disconnect(signalId);
-      }
-    });
-
+    const player = global.display.get_sound_player();
+    player.play_from_file(soundFile, 'Pomodoro Timer', null);
   } catch (e) {
-    log(`Pomodoro Timer: Failed to play sound. ${e}`);
+    console.error(`Pomodoro Timer: Failed to play sound. ${e}`);
   }
 }
